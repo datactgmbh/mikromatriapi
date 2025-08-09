@@ -1,0 +1,8 @@
+parameters:
+    level: 8
+    paths:
+        - src
+    doctrine:
+        objectManagerLoader: tests/bootstrap_doctrine.php
+
+

@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MikroMatriApi Installer</title>
+    <style>
+      body {
+        font-family: system-ui, Arial, sans-serif;
+        margin: 24px;
+      }
+      label {
+        display: block;
+        margin: 8px 0 4px;
+      }
+      input,
+      select {
+        width: 420px;
+        max-width: 100%;
+        padding: 8px;
+      }
+      button {
+        margin-top: 16px;
+        padding: 8px 14px;
+      }
+      .row {
+        margin-bottom: 10px;
+      }
+      .error {
+        color: #b00020;
+      }
+      .ok {
+        color: #0a7c2f;
+      }
+      .card {
+        border: 1px solid #ddd;
+        padding: 16px;
+        border-radius: 8px;
+        max-width: 720px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>MikroMatriApi Installer</h1>
+    <div id="msg"></div>
+    <div class="card">
+      <div class="row">
+        <label>Driver</label>
+        <select id="db_driver">
+          <option value="mysql" selected>mysql</option>
+          <option value="pgsql">pgsql</option>
+         <option value="sqlite">sqlite</option>
+        </select>
+      </div>
+      <div class="row" id="row_host">
+        <label>Host</label><input id="db_host" value="127.0.0.1" />
+      </div>
+      <div class="row" id="row_port">
+        <label>Port</label><input id="db_port" value="3306" />
+      </div>
+      <div class="row" id="row_dbname">
+        <label>Database name</label><input id="db_name" value="app" />
+      </div>
+      <div class="row" id="row_user">
+        <label>User</label><input id="db_user" value="app" />
+      </div>
+      <div class="row" id="row_pass">
+        <label>Password</label><input type="password" id="db_pass" value="" />
+      </div>
+      <div class="row" id="row_sqlite" style="display:none">
+        <label>SQLite file path</label><input id="sqlite_path" value="var/app.sqlite" />
+      </div>
+      <div class="row">
+        <label>Matrix URL</label
+        ><input id="matrix_url" value="https://mikrotik.com/products" />
+      </div>
+      <div class="row">
+        <label>Matrix Referer</label
+        ><input
+          id="matrix_referer"
+          value="https://mikrotik.com/products/matrix"
+        />
+      </div>
+      <button id="btn">Save configuration</button>
+    </div>
+
+    <script>
+      const msg = document.getElementById("msg");
+      const btn = document.getElementById("btn");
+      const port = document.getElementById("db_port");
+      const driver = document.getElementById("db_driver");
+      const rowHost = document.getElementById("row_host");
+      const rowPort = document.getElementById("row_port");
+      const rowDb = document.getElementById("row_dbname");
+      const rowUser = document.getElementById("row_user");
+      const rowPass = document.getElementById("row_pass");
+      const rowSqlite = document.getElementById("row_sqlite");
+
+      function updateVisibility() {
+        const isSqlite = driver.value === "sqlite";
+        rowHost.style.display = isSqlite ? "none" : "block";
+        rowPort.style.display = isSqlite ? "none" : "block";
+        rowDb.style.display = isSqlite ? "none" : "block";
+        rowUser.style.display = isSqlite ? "none" : "block";
+        rowPass.style.display = isSqlite ? "none" : "block";
+        rowSqlite.style.display = isSqlite ? "block" : "none";
+        if (!isSqlite) {
+          port.value = driver.value === "pgsql" ? "5432" : "3306";
+        }
+      }
+      driver.addEventListener("change", () => {
+        updateVisibility();
+      });
+      updateVisibility();
+
+      // Probe available drivers from backend
+      (async () => {
+        try {
+          const res = await fetch("/install/api.php", { method: "GET" });
+          if (!res.ok) return;
+          const info = await res.json();
+          if (!info || !info.success) return;
+          const available = info.drivers || {};
+          // Disable unavailable options
+          for (const opt of driver.options) {
+            const val = opt.value;
+            if (available[val] === false) {
+              opt.disabled = true;
+            }
+          }
+          // Pick first enabled option if current is disabled
+          if (driver.selectedOptions[0] && driver.selectedOptions[0].disabled) {
+            for (const opt of driver.options) {
+              if (!opt.disabled) {
+                driver.value = opt.value;
+                break;
+              }
+            }
+          }
+          // If sqlite is chosen, suggest a recommended path
+          if (info.recommendedSqlitePath) {
+            const sp = document.getElementById("sqlite_path");
+            if (sp && (!sp.value || sp.value === "var/app.sqlite")) {
+              sp.value = info.recommendedSqlitePath;
+            }
+          }
+          // Render capability note
+          const caps = Object.keys(available)
+            .map(k => `${k}: ${available[k] ? "ok" : "missing"}`)
+            .join(" | ");
+          msg.innerHTML = `<p>${caps}</p>` + msg.innerHTML;
+          updateVisibility();
+        } catch (e) {
+          // ignore
+        }
+      })();
+      btn.addEventListener("click", async () => {
+        msg.innerHTML = "";
+        const form = new FormData();
+        form.set("db_driver", document.getElementById("db_driver").value);
+        form.set("db_host", document.getElementById("db_host").value);
+        form.set("db_port", document.getElementById("db_port").value);
+        form.set("db_name", document.getElementById("db_name").value);
+        form.set("db_user", document.getElementById("db_user").value);
+        form.set("db_pass", document.getElementById("db_pass").value);
+        form.set("sqlite_path", document.getElementById("sqlite_path").value);
+        form.set("matrix_url", document.getElementById("matrix_url").value);
+        form.set(
+          "matrix_referer",
+          document.getElementById("matrix_referer").value,
+        );
+        try {
+          const res = await fetch("/install/api.php", {
+            method: "POST",
+            body: form,
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            const errs =
+              data && data.error ? data.error : "Unknown error";
+            msg.innerHTML = `<p class="error">${errs}</p>`;
+            console.error(data.error);
+          } else {
+            msg.innerHTML = `<p class="ok">Configuration saved. You can now remove the install folder under /public and use the api.</p>
+            <p>Make sure you have a cron job running to download the product matrix every day.</p>
+            <p>See <a href="https://github.com/datactgmbh/mikromatriapi/">https://github.com/datactgmbh/mikromatriapi/</a> for more information.</p>`;
+          }
+        } catch (e) {
+          msg.innerHTML = `<p class="error">${e}</p>`;
+        }
+      });
+    </script>
+  </body>
+</html>
